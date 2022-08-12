@@ -11,6 +11,7 @@
 const SHA256 = require('crypto-js/sha256');
 const BlockClass = require('./block.js');
 const bitcoinMessage = require('bitcoinjs-message');
+const {verify} = require("bitcoinjs-message");
 
 class Blockchain {
 
@@ -65,24 +66,14 @@ class Blockchain {
      */
     _addBlock(block) {
         let self = this;
-
         return new Promise(async (resolve, reject) => {
                 let current_height = self.chain.length
-                try {
-                    if (current_height > 0) {
-                        block.previousBlockHash = self.chain[current_height - 1].hash
-                    }
-                    block.height = current_height
-                    block.time = new Date().getTime().toString().slice(0, -3)
-                    block.hash = SHA256(JSON.stringify(block)).toString()
-                    self.chain.push(block)
-                    await self.validateChain()
-                    resolve(block)
-                } catch {
-                    reject(`current_height ${current_height}`)
-                }
-
-
+                block.height = current_height
+                block.time = new Date().getTime().toString().slice(0, -3)
+                block.previousBlockHash = current_height > 0 ? self.chain[current_height - 1].hash : null
+                block.hash = SHA256(JSON.stringify(block)).toString()
+                self.chain.push(block).toString()
+                resolve(block)
             }
         );
     }
@@ -123,8 +114,15 @@ class Blockchain {
         return new Promise(async (resolve, reject) => {
             const msg_time = parseInt(message.split(':')[1])
             const cuttent_time = parseInt(new Date().getTime().toString().slice(0, -3))
-            if (cuttent_time > msg_time + 60 * 5) {
-                if (bitcoinMessage.verify(message, address, signature)) {
+
+            if (cuttent_time < msg_time + 60 * 5) {
+                let verfify = false
+                try {
+                    verfify = bitcoinMessage.verify(message, address, signature)
+                }catch (e){
+                    reject(e.message)
+                }
+                if (verfify) {
                     const block = new BlockClass.Block(
                         {
                             'star': star,
@@ -135,8 +133,9 @@ class Blockchain {
                     self.height += 1
                     resolve(result)
                 }
+                reject('verification failed')
             }
-            reject('过期')
+            reject('msg\'s time expired')
         });
     }
 
@@ -166,7 +165,7 @@ class Blockchain {
     getBlockByHeight(height) {
         let self = this;
         return new Promise((resolve, reject) => {
-            let block = self.chain.filter((p) => p.height === height)[0];
+            let block = self.chain.find(p => p.height === height);
             if (block) {
                 resolve(block);
             } else {
@@ -189,13 +188,9 @@ class Blockchain {
                 let data = await block.getBData()
                 if (data && data.owner === address) {
                     stars.push(block)
-                } else {
-                    console.log('Addresses do not match, data.owner: ', data.owner, " Address =", address);
                 }
-
             })
-            resolve(stars);
-
+            resolve(stars)
         })
 
     }
@@ -211,7 +206,7 @@ class Blockchain {
         let errorLog = [];
         return new Promise(async (resolve, reject) => {
             self.chain.forEach(async (block, idx) => {
-                console.log('idx', idx,block)
+                // console.log('idx', idx, block)
                 if (idx > 0) {
                     const previousBlock = self.chain[idx]
                     if (block.previousBlockHash !== previousBlock.hash) {
